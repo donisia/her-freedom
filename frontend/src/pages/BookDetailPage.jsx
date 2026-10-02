@@ -17,8 +17,10 @@ import BookCover from '../components/common/BookCover';
 import AuthorAvatar from '../components/common/AuthorAvatar';
 import CopyButton from '../components/common/CopyButton';
 import EmptyState from '../components/common/EmptyState';
+import { PageError, PageLoading } from '../components/common/PageStatus';
+import { useApi } from '../hooks/useApi';
 import { useLightning } from '../hooks/useLightning';
-import { getAuthorByNpub, getBookById, getStartingPrice } from '../data/mockBooks';
+import { api } from '../utils/api';
 import { formatSats } from '../utils/lightning';
 import { formatDate } from '../utils/format';
 import { DEFAULT_RELAYS, KIND_LONG_FORM, shortenKey } from '../utils/nostr';
@@ -75,7 +77,11 @@ function ChapterRow({ book, chapter }) {
 
 export default function BookDetailPage() {
   const { id } = useParams();
-  const book = getBookById(id);
+  const { data, error, loading, reload } = useApi((signal) => api.getBook(id, { signal }), [id]);
+  const book = data?.book;
+
+  if (loading && book?.id !== id) return <PageLoading label="Loading book…" />;
+  if (error && error.status !== 404) return <PageError error={error} onRetry={reload} />;
 
   if (!book) {
     return (
@@ -90,17 +96,16 @@ export default function BookDetailPage() {
     );
   }
 
-  const author = getAuthorByNpub(book.authorNpub);
-  const freeCount = book.chapters.filter((c) => c.isFree).length;
+  const { author, freeCount, fullPrice, startingPrice } = book;
   const totalMinutes = book.chapters.reduce((sum, c) => sum + c.readingMinutes, 0);
-  const fullPrice = book.chapters.reduce((sum, c) => sum + c.priceSats, 0);
   const firstChapter = book.chapters[0];
+  const palette = book.cover || { from: '#2A2D37' };
 
   return (
     <div className="relative">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[520px] opacity-40"
-        style={{ background: `radial-gradient(60% 60% at 25% 20%, ${book.cover.from} 0%, transparent 70%)` }}
+        style={{ background: `radial-gradient(60% 60% at 25% 20%, ${palette.from} 0%, transparent 70%)` }}
       />
 
       <div className="container-page relative py-10 sm:py-14">
@@ -162,9 +167,13 @@ export default function BookDetailPage() {
             </dl>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link to={`/book/${book.id}/chapter/${firstChapter.id}`} className="btn-primary btn-lg">
-                <BookOpen className="h-4 w-4" /> {firstChapter.isFree ? 'Start reading free' : 'Start reading'}
-              </Link>
+              {firstChapter ? (
+                <Link to={`/book/${book.id}/chapter/${firstChapter.id}`} className="btn-primary btn-lg">
+                  <BookOpen className="h-4 w-4" /> {firstChapter.isFree ? 'Start reading free' : 'Start reading'}
+                </Link>
+              ) : (
+                <span className="btn-secondary btn-lg pointer-events-none opacity-60">First chapter coming soon</span>
+              )}
               <a href="#contents" className="btn-secondary btn-lg">
                 Table of contents
               </a>
@@ -191,16 +200,26 @@ export default function BookDetailPage() {
                 <h2 className="mt-3 font-display text-3xl text-cream">Chapters</h2>
               </div>
               <p className="text-right text-xs text-cream-faint">
-                From <span className="text-btc">{formatSats(getStartingPrice(book))} sats</span>
-                <br />
-                Full book {formatSats(fullPrice)} sats
+                {startingPrice ? (
+                  <>
+                    From <span className="text-btc">{formatSats(startingPrice)} sats</span>
+                    <br />
+                    Full book {formatSats(fullPrice)} sats
+                  </>
+                ) : (
+                  <span className="text-emerald-300">Every chapter is free</span>
+                )}
               </p>
             </div>
-            <ol className="divide-y divide-line">
-              {book.chapters.map((chapter) => (
-                <ChapterRow key={chapter.id} book={book} chapter={chapter} />
-              ))}
-            </ol>
+            {book.chapters.length > 0 ? (
+              <ol className="divide-y divide-line">
+                {book.chapters.map((chapter) => (
+                  <ChapterRow key={chapter.id} book={book} chapter={chapter} />
+                ))}
+              </ol>
+            ) : (
+              <p className="py-10 text-sm text-cream-faint">The author hasn’t published any chapters yet.</p>
+            )}
           </div>
 
           <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
@@ -216,7 +235,7 @@ export default function BookDetailPage() {
                   <p className="text-xs text-cream-faint">{author.location}</p>
                 </div>
               </div>
-              <p className="mt-5 text-sm leading-relaxed text-cream-muted">{author.bio}</p>
+              {author.bio && <p className="mt-5 text-sm leading-relaxed text-cream-muted">{author.bio}</p>}
 
               <div className="mt-5 space-y-2.5 rounded-xl border border-line bg-ink/50 p-3.5">
                 <div className="flex items-center justify-between gap-2">
@@ -226,13 +245,15 @@ export default function BookDetailPage() {
                   </span>
                   <CopyButton value={author.npub} label="Copy npub" successMessage="Public key copied" />
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2 text-xs">
-                    <Zap className="h-3.5 w-3.5 shrink-0 text-btc" />
-                    <span className="truncate font-mono text-cream-muted">{author.lightningAddress}</span>
-                  </span>
-                  <CopyButton value={author.lightningAddress} label="Copy lightning address" successMessage="Lightning address copied" />
-                </div>
+                {author.lightningAddress && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2 text-xs">
+                      <Zap className="h-3.5 w-3.5 shrink-0 text-btc" />
+                      <span className="truncate font-mono text-cream-muted">{author.lightningAddress}</span>
+                    </span>
+                    <CopyButton value={author.lightningAddress} label="Copy lightning address" successMessage="Lightning address copied" />
+                  </div>
+                )}
               </div>
 
               <Link to={`/author/${author.npub}`} className="btn-secondary btn-sm mt-5 w-full">
@@ -252,7 +273,7 @@ export default function BookDetailPage() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-cream-faint">Event id</dt>
-                  <dd className="truncate font-mono text-cream-muted">{shortenKey(book.nostrEventId, 10, 6)}</dd>
+                  <dd className="truncate font-mono text-cream-muted">{book.nostrEventId ? shortenKey(book.nostrEventId, 10, 6) : 'Not broadcast'}</dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-cream-faint">Mirrored on</dt>

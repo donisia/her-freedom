@@ -20,8 +20,10 @@ import {
 } from 'lucide-react';
 import BookCover from '../components/common/BookCover';
 import CopyButton from '../components/common/CopyButton';
+import EmptyState from '../components/common/EmptyState';
+import { PageError, PageLoading } from '../components/common/PageStatus';
+import { useApi } from '../hooks/useApi';
 import { useNostr } from '../hooks/useNostr';
-import { getBookById, getBooksByAuthor, getChapter, getWorkspaceAuthor, lightningIncome } from '../data/mockBooks';
 import { formatSats } from '../utils/lightning';
 import { formatDate, formatNumber, timeAgo } from '../utils/format';
 import { shortenKey } from '../utils/nostr';
@@ -33,8 +35,6 @@ const TABS = [
   { id: 'earnings', label: 'Earnings', icon: Wallet },
   { id: 'identity', label: 'Nostr Identity', icon: Fingerprint },
 ];
-
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /* --------------------------------- Pieces --------------------------------- */
 
@@ -54,6 +54,17 @@ function KpiCard({ icon: Icon, label, value, hint }) {
 }
 
 function PublicationsTable({ books }) {
+  if (books.length === 0) {
+    return (
+      <EmptyState
+        icon={Library}
+        title="No books yet"
+        description="Create your first book, then add free or paid chapters to it."
+        actionLabel="Create a book"
+        actionTo="/create-book"
+      />
+    );
+  }
   return (
     <div className="card overflow-hidden">
       <div className="overflow-x-auto">
@@ -70,7 +81,7 @@ function PublicationsTable({ books }) {
           </thead>
           <tbody className="divide-y divide-line">
             {books.map((book) => {
-              const paid = book.chapters.filter((c) => !c.isFree).length;
+              const paid = book.paidCount;
               return (
                 <tr key={book.id} className="transition hover:bg-white/[0.02]">
                   <td className="px-5 py-4">
@@ -111,47 +122,47 @@ function PublicationsTable({ books }) {
 
 function IncomeFeed({ entries, limit }) {
   const list = limit ? entries.slice(0, limit) : entries;
+  if (list.length === 0) {
+    return <p className="py-8 text-center text-sm text-cream-faint">No payments yet. Paid chapter unlocks will appear here.</p>;
+  }
   return (
     <ul className="divide-y divide-line">
-      {list.map((entry) => {
-        const book = getBookById(entry.bookId);
-        const chapter = getChapter(book, entry.chapterId);
-        return (
-          <li key={entry.id} className="flex items-center gap-3 py-3.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-btc/10 text-btc">
-              <Zap className="h-4 w-4" fill="currentColor" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-cream">
-                Ch. {chapter?.number} · {chapter?.title}
-              </p>
-              <p className="truncate text-xs text-cream-faint">
-                {book?.title} · <span className="font-mono">{entry.reader}…</span>
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="font-mono text-sm text-btc">+{formatSats(entry.sats)}</p>
-              <p className="text-[11px] text-cream-faint">{timeAgo(entry.at)}</p>
-            </div>
-          </li>
-        );
-      })}
+      {list.map((entry) => (
+        <li key={entry.id} className="flex items-center gap-3 py-3.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-btc/10 text-btc">
+            <Zap className="h-4 w-4" fill="currentColor" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-cream">
+              Ch. {entry.chapterNumber} · {entry.chapterTitle}
+            </p>
+            <p className="truncate text-xs text-cream-faint">
+              {entry.bookTitle} · <span className="font-mono">{entry.reader}…</span>
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-sm text-btc">+{formatSats(entry.sats)}</p>
+            <p className="text-[11px] text-cream-faint">{timeAgo(entry.at)}</p>
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }
 
-function WeeklyChart({ values }) {
-  const max = Math.max(...values);
+/** Sats per day for the last 7 days: [{ date, label, sats }]. */
+function WeeklyChart({ days }) {
+  const max = Math.max(1, ...days.map((d) => d.sats));
   return (
     <div className="flex h-48 items-end gap-2 sm:gap-3">
-      {values.map((value, i) => (
-        <div key={WEEKDAYS[i]} className="group flex flex-1 flex-col items-center gap-2">
-          <span className="text-[10px] font-mono text-cream-faint opacity-0 transition group-hover:opacity-100">{formatSats(value)}</span>
+      {days.map((day, i) => (
+        <div key={day.date} className="group flex h-full flex-1 flex-col items-center justify-end gap-2">
+          <span className="text-[10px] font-mono text-cream-faint opacity-0 transition group-hover:opacity-100">{formatSats(day.sats)}</span>
           <div
-            className={`w-full rounded-t-lg transition-all duration-500 ${i === values.length - 1 ? 'bg-btc shadow-glow' : 'bg-btc/30 group-hover:bg-btc/60'}`}
-            style={{ height: `${(value / max) * 100}%` }}
+            className={`w-full rounded-t-lg transition-all duration-500 ${i === days.length - 1 ? 'bg-btc shadow-glow' : 'bg-btc/30 group-hover:bg-btc/60'}`}
+            style={{ height: `${Math.max(2, (day.sats / max) * 100)}%` }}
           />
-          <span className="text-[11px] text-cream-faint">{WEEKDAYS[i]}</span>
+          <span className="text-[11px] text-cream-faint">{day.label}</span>
         </div>
       ))}
     </div>
@@ -163,22 +174,27 @@ function WeeklyChart({ values }) {
 export default function AuthorDashboardPage() {
   const [params, setParams] = useSearchParams();
   const tab = TABS.some((t) => t.id === params.get('tab') && !t.to) ? params.get('tab') : 'overview';
-  const { isConnected, isConnecting, isSimulated, npub, pubkey, mode, hasExtension, relays, connect, disconnect } = useNostr();
+  const { isConnected, isConnecting, isSimulated, npub, pubkey, mode, hasExtension, relays, connect, disconnect, authRequest } =
+    useNostr();
 
-  const author = getWorkspaceAuthor(npub);
-  const myBooks = getBooksByAuthor(author.npub);
-  const bookIds = new Set(myBooks.map((b) => b.id));
-  const income = lightningIncome.filter((e) => bookIds.has(e.bookId)).sort((a, b) => new Date(b.at) - new Date(a.at));
-  const totalChapters = myBooks.reduce((sum, b) => sum + b.chapters.length, 0);
-  const todaySats = income.filter((e) => Date.now() - new Date(e.at) < 864e5).reduce((s, e) => s + e.sats, 0);
-  const weekSats = author.stats.weekly.reduce((a, b) => a + b, 0);
+  const { data, error, loading, reload } = useApi(() => authRequest('/me/dashboard'), [pubkey], { enabled: isConnected });
+
+  if (isConnected && loading && !data) return <PageLoading label="Signing in to your dashboard…" />;
+  if (isConnected && error) return <PageError error={error} onRetry={reload} />;
+
+  const author = data?.author;
+  const myBooks = data?.books ?? [];
+  const income = data?.income ?? [];
+  const stats = data?.stats ?? { books: 0, chapters: 0, paidReaders: 0, satsEarned: 0, satsToday: 0, satsWeek: 0 };
+  const weekly = data?.weekly ?? [];
+  const displayName = author?.name && author.name !== 'Anonymous Author' ? author.name.split(' ')[0] : 'author';
 
   return (
     <div className="container-page py-10 sm:py-14">
       <header className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="eyebrow">Author dashboard</p>
-          <h1 className="mt-3 font-display text-4xl text-cream sm:text-5xl">Welcome back, {author.name.split(' ')[0]}</h1>
+          <h1 className="mt-3 font-display text-4xl text-cream sm:text-5xl">{isConnected ? `Welcome back, ${displayName}` : 'Your author workspace'}</h1>
           <p className="mt-2 text-sm text-cream-muted">Manage your catalogue, watch the sats arrive, and keep your identity healthy.</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -200,8 +216,10 @@ export default function AuthorDashboardPage() {
                 {isConnected ? 'You’re using a simulated identity' : 'Connect a Nostr signer to publish'}
               </p>
               <p className="mt-1 text-sm text-cream-muted">
-                Showing the demo catalogue of {author.name}. Install a NIP-07 extension (Alby, nos2x) to sign real events —
-                we will never ask for your private key.
+                {isConnected
+                  ? 'Books you create are saved under the shared demo key.'
+                  : 'Your dashboard is tied to your Nostr public key.'}{' '}
+                Install a NIP-07 extension (Alby, nos2x) to sign real events — we will never ask for your private key.
               </p>
             </div>
           </div>
@@ -244,10 +262,15 @@ export default function AuthorDashboardPage() {
           {tab === 'overview' && (
             <>
               <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-                <KpiCard icon={BookOpen} label="Published Books" value={myBooks.length} />
-                <KpiCard icon={Layers} label="Total Chapters" value={totalChapters} />
-                <KpiCard icon={Users} label="Paid Readers" value={formatNumber(author.stats.paidReaders)} hint="+38 this week" />
-                <KpiCard icon={Zap} label="Sats Earned" value={formatSats(author.stats.satsEarned)} hint={`+${formatSats(todaySats)} today`} />
+                <KpiCard icon={BookOpen} label="Published Books" value={stats.books} />
+                <KpiCard icon={Layers} label="Total Chapters" value={stats.chapters} />
+                <KpiCard icon={Users} label="Paid Readers" value={formatNumber(stats.paidReaders)} />
+                <KpiCard
+                  icon={Zap}
+                  label="Sats Earned"
+                  value={formatSats(stats.satsEarned)}
+                  hint={stats.satsToday ? `+${formatSats(stats.satsToday)} today` : undefined}
+                />
               </div>
 
               <div className="grid gap-8 xl:grid-cols-[1fr_340px]">
@@ -293,20 +316,26 @@ export default function AuthorDashboardPage() {
           {tab === 'earnings' && (
             <>
               <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
-                <KpiCard icon={Wallet} label="Lifetime" value={`${formatSats(author.stats.satsEarned)}`} />
-                <KpiCard icon={TrendingUp} label="Last 7 days" value={formatSats(weekSats)} hint="+12% vs prior week" />
-                <KpiCard icon={Zap} label="Last 24 hours" value={formatSats(todaySats)} />
+                <KpiCard icon={Wallet} label="Lifetime" value={formatSats(stats.satsEarned)} />
+                <KpiCard icon={TrendingUp} label="Last 7 days" value={formatSats(stats.satsWeek)} />
+                <KpiCard icon={Zap} label="Last 24 hours" value={formatSats(stats.satsToday)} />
               </div>
-              <section className="card p-6">
-                <div className="mb-6 flex items-center justify-between">
-                  <h2 className="font-display text-xl text-cream">Sats per day</h2>
-                  <span className="text-xs text-cream-faint">Last 7 days</span>
-                </div>
-                <WeeklyChart values={author.stats.weekly} />
-              </section>
+              {weekly.length > 0 && (
+                <section className="card p-6">
+                  <div className="mb-6 flex items-center justify-between">
+                    <h2 className="font-display text-xl text-cream">Sats per day</h2>
+                    <span className="text-xs text-cream-faint">Last 7 days</span>
+                  </div>
+                  <WeeklyChart days={weekly} />
+                </section>
+              )}
               <section className="card p-6">
                 <h2 className="font-display text-xl text-cream">Lightning income log</h2>
-                <p className="mt-1 text-xs text-cream-faint">Each payment settles directly to {author.lightningAddress}.</p>
+                <p className="mt-1 text-xs text-cream-faint">
+                  {author?.lightningAddress
+                    ? `Each payment settles directly to ${author.lightningAddress}.`
+                    : 'Each payment settles directly to the author’s wallet.'}
+                </p>
                 <IncomeFeed entries={income} />
               </section>
             </>

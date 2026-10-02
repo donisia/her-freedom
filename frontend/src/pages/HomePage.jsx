@@ -1,8 +1,11 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, BookOpen, Feather, KeyRound, PenLine, Radio, Unlock, Zap } from 'lucide-react';
-import BookCard from '../components/common/BookCard';
+import BookCard, { BookCardSkeleton } from '../components/common/BookCard';
 import BookCover from '../components/common/BookCover';
-import { books, getBookById } from '../data/mockBooks';
+import { useApi } from '../hooks/useApi';
+import { api } from '../utils/api';
+
+const HERO_IDS = ['ledger-of-kings', 'the-salt-roads', 'small-hours'];
 
 const FEATURES = [
   {
@@ -29,20 +32,29 @@ const STEPS = [
   { icon: Unlock, title: 'Readers unlock', body: 'Free chapters hook readers in. Paid chapters unlock instantly with a Lightning micropayment.' },
 ];
 
-/** Overlapping cover composition for the hero. */
-function HeroCovers() {
-  const [left, center, right] = ['ledger-of-kings', 'the-salt-roads', 'small-hours'].map(getBookById);
+/** Overlapping cover composition for the hero; falls back to the first featured titles. */
+function HeroCovers({ books }) {
+  const preferred = HERO_IDS.map((id) => books.find((b) => b.id === id)).filter(Boolean);
+  const [left, center, right] = preferred.length === 3 ? preferred : books.slice(0, 3);
   return (
     <div className="relative mx-auto h-[360px] w-full max-w-[440px] sm:h-[460px]">
-      <div className="absolute left-0 top-12 w-[38%] -rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[-4deg] sm:top-16">
-        <BookCover book={left} size="sm" />
-      </div>
-      <div className="absolute right-0 top-12 w-[38%] rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[4deg] sm:top-16">
-        <BookCover book={right} size="sm" />
-      </div>
+      {left && (
+        <div className="absolute left-0 top-12 w-[38%] -rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[-4deg] sm:top-16">
+          <BookCover book={left} size="sm" />
+        </div>
+      )}
+      {right && (
+        <div className="absolute right-0 top-12 w-[38%] rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[4deg] sm:top-16">
+          <BookCover book={right} size="sm" />
+        </div>
+      )}
       <div className="absolute left-1/2 top-0 w-[50%] -translate-x-1/2">
         <div className="animate-float">
-          <BookCover book={center} size="md" className="shadow-glow-soft" />
+          {center ? (
+            <BookCover book={center} size="md" className="shadow-glow-soft" />
+          ) : (
+            <div className="aspect-[2/3] animate-pulse rounded-lg bg-card" />
+          )}
         </div>
       </div>
 
@@ -64,7 +76,9 @@ function HeroCovers() {
 }
 
 export default function HomePage() {
-  const featured = books.filter((book) => book.featured).slice(0, 4);
+  const { data, error, loading } = useApi((signal) => api.listBooks({ featured: 1 }, { signal }), []);
+  const featuredBooks = data?.books ?? [];
+  const featured = featuredBooks.slice(0, 4);
 
   return (
     <>
@@ -110,7 +124,7 @@ export default function HomePage() {
           </div>
 
           <div className="lg:col-span-5">
-            <HeroCovers />
+            <HeroCovers books={featuredBooks} />
           </div>
         </div>
       </section>
@@ -151,11 +165,15 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="mt-12 grid grid-cols-2 gap-x-3 gap-y-8 sm:gap-x-5 lg:grid-cols-4">
-          {featured.map((book) => (
-            <BookCard key={book.id} book={book} />
-          ))}
-        </div>
+        {error ? (
+          <p className="mt-12 rounded-2xl border border-red-400/25 bg-red-400/[0.06] p-5 text-sm text-cream-muted">{error.message}</p>
+        ) : (
+          <div className="mt-12 grid grid-cols-2 gap-x-3 gap-y-8 sm:gap-x-5 lg:grid-cols-4">
+            {loading && !data
+              ? Array.from({ length: 4 }, (_, i) => <BookCardSkeleton key={i} />)
+              : featured.map((book) => <BookCard key={book.id} book={book} />)}
+          </div>
+        )}
       </section>
 
       {/* -------------------------- How it works -------------------------- */}

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Clock, FlaskConical, Lock, Minus, Plus, Unlock } from 'lucide-react';
 import ChapterContent from '../components/reader/ChapterContent';
 import LockedChapterOverlay from '../components/reader/LockedChapterOverlay';
 import EmptyState from '../components/common/EmptyState';
+import { PageError, PageLoading } from '../components/common/PageStatus';
+import { useApi } from '../hooks/useApi';
 import { useLightning } from '../hooks/useLightning';
-import { getAuthorByNpub, getBookById, getChapter, getChapterParagraphs } from '../data/mockBooks';
+import { api } from '../utils/api';
 import { toRoman } from '../utils/format';
 
 const TEXT_SIZES = ['1.0625rem', '1.1875rem', '1.3125rem', '1.4375rem'];
@@ -73,8 +75,6 @@ function DemoToggle({ book, chapter, unlocked }) {
 
 export default function ChapterPage() {
   const { id, chapterId } = useParams();
-  const book = getBookById(id);
-  const chapter = getChapter(book, chapterId);
   const { isUnlocked, openPayment } = useLightning();
   const progress = useScrollProgress();
   const [sizeIndex, setSizeIndex] = useState(() => Number(localStorage.getItem(TEXT_SIZE_KEY) ?? 1));
@@ -83,23 +83,30 @@ export default function ChapterPage() {
     localStorage.setItem(TEXT_SIZE_KEY, String(sizeIndex));
   }, [sizeIndex]);
 
-  const paragraphs = useMemo(() => (book && chapter ? getChapterParagraphs(book, chapter) : []), [book, chapter]);
+  // Re-fetch when this browser gains or loses the chapter, so the server can
+  // send the full text (or only the preview) accordingly.
+  const owned = isUnlocked({ id }, { id: chapterId });
+  const { data, error, loading, reload } = useApi((signal) => api.getChapter(id, chapterId, { signal }), [id, chapterId, owned]);
 
-  if (!book || !chapter) {
+  const stale = data && (data.book.id !== id || data.chapter.id !== chapterId);
+  if (loading && (!data || stale)) return <PageLoading label="Opening chapter…" />;
+  if (error && error.status !== 404) return <PageError error={error} onRetry={reload} />;
+
+  if (!data) {
     return (
       <div className="container-page py-24">
         <EmptyState
           title="Chapter not found"
           description="This chapter doesn’t exist or hasn’t been published yet."
-          actionLabel={book ? 'Back to book' : 'Explore the library'}
-          actionTo={book ? `/book/${book.id}` : '/explore'}
+          actionLabel="Back to book"
+          actionTo={`/book/${id}`}
         />
       </div>
     );
   }
 
-  const author = getAuthorByNpub(book.authorNpub);
-  const unlocked = isUnlocked(book, chapter);
+  const { book, chapter, paragraphs, unlocked } = data;
+  const { author } = book;
   const index = book.chapters.findIndex((c) => c.id === chapter.id);
   const prev = book.chapters[index - 1];
   const next = book.chapters[index + 1];

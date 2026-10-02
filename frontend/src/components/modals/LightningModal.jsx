@@ -59,7 +59,7 @@ function formatCountdown(totalSeconds) {
  * the Lightning context; includes a payment simulator for the demo.
  */
 export default function LightningModal() {
-  const { payment, closePayment, simulateSuccess, simulateFailure, regenerateInvoice } = useLightning();
+  const { payment, isSimulating, closePayment, simulateSuccess, simulateFailure, regenerateInvoice } = useLightning();
   const flash = useFlash();
   const navigate = useNavigate();
   const dialogRef = useRef(null);
@@ -100,11 +100,15 @@ export default function LightningModal() {
 
   if (!payment) return null;
 
-  const { book, chapter, invoice, status, expiresAt } = payment;
+  const { book, chapter, status } = payment;
+  const invoice = payment.invoice?.bolt11 || '';
+  const expiresAt = payment.invoice ? Date.parse(payment.invoice.expiresAt) : now;
   const remaining = Math.max(0, Math.round((expiresAt - now) / 1000));
-  const isExpired = status === 'pending' && remaining === 0;
+  const isExpired = status === 'expired' || (status === 'pending' && remaining === 0);
+  const canSimulate = status === 'pending' && !isExpired && !isSimulating;
 
   const handleCopy = async () => {
+    if (!invoice) return;
     const ok = await copyToClipboard(invoice);
     if (ok) {
       setCopied(true);
@@ -178,10 +182,25 @@ export default function LightningModal() {
                 <BookOpen className="h-4 w-4" /> Start reading
               </button>
             </div>
+          ) : status === 'error' ? (
+            <div className="mt-6 rounded-2xl border border-red-400/25 bg-red-400/[0.06] p-6 text-center">
+              <XCircle className="mx-auto h-10 w-10 text-red-300" />
+              <p className="mt-3 font-display text-xl text-cream">Couldn’t create an invoice</p>
+              <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-cream-muted">{payment.error}</p>
+              <button type="button" onClick={regenerateInvoice} className="btn-secondary btn-sm mt-5">
+                <RefreshCw className="h-3.5 w-3.5" /> Try again
+              </button>
+            </div>
           ) : (
             <>
               <div className="relative mx-auto mt-6 aspect-square w-full max-w-[260px] overflow-hidden rounded-2xl bg-cream p-2 shadow-glow-soft">
-                <MockQrCode value={invoice} />
+                {invoice ? (
+                  <MockQrCode value={invoice} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center" aria-label="Creating invoice">
+                    <Loader2 className="h-8 w-8 animate-spin text-ink/60" />
+                  </div>
+                )}
                 {(status === 'failed' || isExpired) && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-ink/85 p-6 text-center backdrop-blur-sm">
                     {isExpired ? <Clock className="h-9 w-9 text-amber-300" /> : <XCircle className="h-9 w-9 text-red-300" />}
@@ -194,6 +213,7 @@ export default function LightningModal() {
               </div>
 
               <div className="mt-4 flex items-center justify-center gap-2 text-xs text-cream-faint">
+                {status === 'creating' && 'Requesting an invoice from the author’s node…'}
                 {status === 'pending' && !isExpired && (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-btc" />
@@ -235,10 +255,10 @@ export default function LightningModal() {
                   This invoice is a demo and can’t be paid on mainnet. Use these buttons to test the unlock flow.
                 </p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={simulateSuccess} className="btn-primary btn-sm">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Simulate Success
+                  <button type="button" onClick={simulateSuccess} disabled={!canSimulate} className="btn-primary btn-sm disabled:opacity-50">
+                    {isSimulating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Simulate Success
                   </button>
-                  <button type="button" onClick={simulateFailure} className="btn-danger btn-sm">
+                  <button type="button" onClick={simulateFailure} disabled={!canSimulate} className="btn-danger btn-sm disabled:opacity-50">
                     <AlertTriangle className="h-3.5 w-3.5" /> Simulate Failure
                   </button>
                 </div>

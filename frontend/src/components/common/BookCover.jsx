@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { getAuthorByNpub } from '../../data/mockBooks';
 
 /** Decorative SVG motifs that give each generated cover its own identity. */
 function Motif({ type, accent }) {
@@ -80,7 +79,6 @@ const SIZES = {
  */
 export default function BookCover({ book, size = 'md', className = '', showCategory = true }) {
   const [imageFailed, setImageFailed] = useState(false);
-  const author = getAuthorByNpub(book.authorNpub);
   const s = SIZES[size];
   const palette = book.cover || { from: '#2A2D37', to: '#0F1012', accent: '#F7931A', motif: 'lines' };
 
@@ -125,7 +123,7 @@ export default function BookCover({ book, size = 'md', className = '', showCateg
           <div className="mt-auto">
             <div className="mb-2 h-px w-8" style={{ background: palette.accent }} />
             <p className={`${s.meta} font-medium uppercase tracking-[0.24em] text-cream/80`}>
-              {author?.name || book.authorName || 'Anonymous'}
+              {book.author?.name || 'Anonymous'}
             </p>
           </div>
         </div>

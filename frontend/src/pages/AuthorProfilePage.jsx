@@ -4,8 +4,10 @@ import AuthorAvatar from '../components/common/AuthorAvatar';
 import BookCard from '../components/common/BookCard';
 import CopyButton from '../components/common/CopyButton';
 import EmptyState from '../components/common/EmptyState';
+import { PageError, PageLoading } from '../components/common/PageStatus';
+import { useApi } from '../hooks/useApi';
 import { useNostr } from '../hooks/useNostr';
-import { getAuthorByNpub, getBooksByAuthor } from '../data/mockBooks';
+import { api } from '../utils/api';
 import { formatDate, formatNumber } from '../utils/format';
 import { shortenKey } from '../utils/nostr';
 
@@ -50,9 +52,13 @@ function PublishingIdentity({ npub }) {
 export default function AuthorProfilePage() {
   const { npub: rawNpub } = useParams();
   const npub = decodeURIComponent(rawNpub);
-  const author = getAuthorByNpub(npub);
   const { npub: myNpub } = useNostr();
   const isMe = myNpub === npub;
+  const { data, error, loading, reload } = useApi((signal) => api.getAuthor(npub, { signal }), [npub]);
+  const author = data?.author?.npub === npub ? data.author : null;
+
+  if (loading && !author) return <PageLoading label="Loading author…" />;
+  if (error && error.status !== 404) return <PageError error={error} onRetry={reload} />;
 
   // A connected user without catalogue entries still gets a real profile page.
   if (!author && !isMe) {
@@ -68,18 +74,21 @@ export default function AuthorProfilePage() {
     );
   }
 
-  const profile = author || {
+  const fallback = {
     npub,
     name: 'Anonymous Author',
     initials: '✦',
     bio: 'This key hasn’t published any books yet. Publish your first title to fill this page.',
-    lightningAddress: 'not set',
+    lightningAddress: null,
     location: 'Somewhere on the network',
     joined: new Date().toISOString(),
     avatarHue: 30,
   };
-  const authorBooks = getBooksByAuthor(npub);
-  const totalChapters = authorBooks.reduce((sum, b) => sum + b.chapters.length, 0);
+  const profile = author
+    ? { ...author, bio: author.bio || fallback.bio, location: author.location || fallback.location }
+    : fallback;
+  const authorBooks = author ? data.books : [];
+  const totalChapters = author?.stats.chapters ?? 0;
 
   return (
     <div>
@@ -110,11 +119,13 @@ export default function AuthorProfilePage() {
                   {shortenKey(profile.npub)}
                   <CopyButton value={profile.npub} label="Copy npub" successMessage="Public key copied" className="h-7 w-7" />
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-btc/30 bg-btc/10 py-0.5 pl-3 pr-1 font-mono text-btc">
-                  <Zap className="mr-1 h-3 w-3" />
-                  {profile.lightningAddress}
-                  <CopyButton value={profile.lightningAddress} label="Copy lightning address" successMessage="Lightning address copied" className="h-7 w-7" />
-                </span>
+                {profile.lightningAddress && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-btc/30 bg-btc/10 py-0.5 pl-3 pr-1 font-mono text-btc">
+                    <Zap className="mr-1 h-3 w-3" />
+                    {profile.lightningAddress}
+                    <CopyButton value={profile.lightningAddress} label="Copy lightning address" successMessage="Lightning address copied" className="h-7 w-7" />
+                  </span>
+                )}
               </div>
             </div>
           </div>

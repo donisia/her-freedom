@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Info, KeyRound, Loader2, Radio, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Info, KeyRound, Loader2, Radio, ShieldCheck, X } from 'lucide-react';
 import BookCover from '../components/common/BookCover';
+import { PageError, PageLoading } from '../components/common/PageStatus';
+import { useApi } from '../hooks/useApi';
 import { useNostr } from '../hooks/useNostr';
 import { useFlash } from '../hooks/useFlash';
-import { CATEGORIES, LANGUAGES, getBookById, getWorkspaceAuthor } from '../data/mockBooks';
+import { CATEGORIES, LANGUAGES } from '../data/catalogue';
+import { api } from '../utils/api';
 import { KIND_LONG_FORM } from '../utils/nostr';
 
 const EMPTY_FORM = {
@@ -39,46 +42,52 @@ function validate(form) {
 export default function CreateBookPage() {
   const navigate = useNavigate();
   const flash = useFlash();
-  const { isConnected, isSimulated, npub, connect, isConnecting, signAndPublish } = useNostr();
+  const { isConnected, isSimulated, pubkey, connect, isConnecting, signAndPublish, authRequest } = useNostr();
   const [params] = useSearchParams();
-  const editing = getBookById(params.get('edit'));
+  const editId = params.get('edit');
+  const editQuery = useApi((signal) => api.getBook(editId, { signal }), [editId], { enabled: Boolean(editId) });
+  const editing = editQuery.data?.book ?? null;
+  const ownsEditing = !editing || editing.author.pubkey === pubkey;
 
-  const [form, setForm] = useState(() =>
-    editing
-      ? {
-          ...EMPTY_FORM,
-          title: editing.title,
-          subtitle: editing.subtitle || '',
-          category: editing.category,
-          language: editing.language,
-          description: editing.description,
-          coverUrl: editing.coverUrl || '',
-          tags: editing.tags.join(', '),
-        }
-      : EMPTY_FORM,
-  );
+  const [form, setForm] = useState(EMPTY_FORM);
   const [touched, setTouched] = useState({});
+  const [serverErrors, setServerErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
-  const errors = validate(form);
+  // Populate the form once the book being edited arrives.
+  useEffect(() => {
+    if (!editing) return;
+    setForm({
+      ...EMPTY_FORM,
+      title: editing.title,
+      subtitle: editing.subtitle || '',
+      category: editing.category,
+      language: editing.language,
+      description: editing.description,
+      coverUrl: editing.coverUrl || '',
+      tags: editing.tags.join(', '),
+    });
+  }, [editing]);
+
+  const errors = { ...validate(form), ...serverErrors };
   const tags = parseTags(form.tags);
-  const author = getWorkspaceAuthor(npub);
 
   const previewBook = useMemo(
     () => ({
       id: 'preview',
       title: form.title || 'Your title here',
       category: form.category,
-      authorNpub: author.npub,
+      author: { name: editing?.author.name || 'You' },
       coverUrl: form.coverUrl.trim() || null,
       cover: editing?.cover || { from: '#3A2414', to: '#0F1012', accent: '#F7931A', motif: 'sun' },
     }),
-    [form.title, form.category, form.coverUrl, author.npub, editing],
+    [form.title, form.category, form.coverUrl, editing],
   );
 
   const update = (field) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((current) => ({ ...current, [field]: value }));
+    setServerErrors(({ [field]: _cleared, ...rest }) => rest);
   };
   const blur = (field) => () => setTouched((t) => ({ ...t, [field]: true }));
   const showError = (field) => touched[field] && errors[field];
@@ -91,48 +100,70 @@ export default function CreateBookPage() {
       return;
     }
 
+    if (!isConnected) {
+      flash.warning('Books are owned by a Nostr key. Connect a signer first — we never ask for your private key.', {
+        title: 'Connect to publish',
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
+      let nostrEventId;
       if (form.publishToNostr) {
-        if (!isConnected) {
-          flash.warning('Connect a Nostr signer to publish metadata. Your book was saved as a local draft.', {
-            title: 'Saved as draft',
-          });
-        } else {
-          // NIP-23 parameterized replaceable event: metadata only, no paid content.
-          const { accepted, results } = await signAndPublish({
-            kind: KIND_LONG_FORM,
-            content: form.description.trim(),
-            tags: [
-              ['d', slugify(form.title)],
-              ['title', form.title.trim()],
-              ['summary', form.subtitle.trim()],
-              ...(form.coverUrl ? [['image', form.coverUrl.trim()]] : []),
-              ['L', 'sovereign-publishing'],
-              ['l', form.category.toLowerCase(), 'sovereign-publishing'],
-              ['language', form.language],
-              ...tags.map((t) => ['t', t]),
-            ],
-          });
-          flash.info(
-            isSimulated
-              ? `Simulated broadcast to ${accepted} relays.`
-              : `Accepted by ${accepted} of ${results.length} relays.`,
-            { title: 'Metadata signed on Nostr' },
-          );
-        }
+        // NIP-23 parameterized replaceable event: metadata only, no paid content.
+        const { event, accepted, results } = await signAndPublish({
+          kind: KIND_LONG_FORM,
+          content: form.description.trim(),
+          tags: [
+            ['d', editing?.id || slugify(form.title)],
+            ['title', form.title.trim()],
+            ['summary', form.subtitle.trim()],
+            ...(form.coverUrl ? [['image', form.coverUrl.trim()]] : []),
+            ['L', 'sovereign-publishing'],
+            ['l', form.category.toLowerCase(), 'sovereign-publishing'],
+            ['language', form.language],
+            ...tags.map((t) => ['t', t]),
+          ],
+        });
+        flash.info(
+          isSimulated ? `Simulated broadcast to ${accepted} relays.` : `Accepted by ${accepted} of ${results.length} relays.`,
+          { title: 'Metadata signed on Nostr' },
+        );
+        nostrEventId = event.id;
       }
 
-      flash.success(`“${form.title.trim()}” ${editing ? 'was updated' : 'is ready for its first chapter'}.`, {
+      const body = {
+        title: form.title.trim(),
+        subtitle: form.subtitle.trim(),
+        category: form.category,
+        language: form.language,
+        description: form.description.trim(),
+        coverUrl: form.coverUrl.trim(),
+        tags,
+        nostrEventId,
+      };
+      const { book } = editing
+        ? await authRequest(`/books/${encodeURIComponent(editing.id)}`, { method: 'PUT', body })
+        : await authRequest('/books', { method: 'POST', body });
+
+      flash.success(`“${book.title}” ${editing ? 'was updated' : 'is ready for its first chapter'}.`, {
         title: editing ? 'Book updated' : 'Book created',
       });
-      navigate('/dashboard');
+      navigate(editing ? '/dashboard?tab=books' : `/create-chapter?book=${encodeURIComponent(book.id)}`);
     } catch (error) {
+      if (error?.details) {
+        setServerErrors(error.details);
+        setTouched((t) => ({ ...t, ...Object.fromEntries(Object.keys(error.details).map((k) => [k, true])) }));
+      }
       flash.error(error?.message || 'Signing was cancelled.', { title: 'Could not publish' });
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (editId && editQuery.loading) return <PageLoading label="Loading book…" />;
+  if (editId && editQuery.error) return <PageError error={editQuery.error} onRetry={editQuery.reload} />;
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -145,6 +176,13 @@ export default function CreateBookPage() {
         <h1 className="mt-3 font-display text-4xl text-cream sm:text-5xl">{editing ? `Editing “${editing.title}”` : 'Start a new book'}</h1>
         <p className="mt-3 text-cream-muted">Describe your book. You’ll add chapters — free or paid — once it exists.</p>
       </header>
+
+      {!ownsEditing && (
+        <div className="mt-6 flex max-w-2xl gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-cream-muted">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+          This book is signed by {editing.author.name}. Only their key can save changes to it.
+        </div>
+      )}
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_320px] lg:gap-14">
         <form onSubmit={handleSubmit} noValidate className="card space-y-6 p-5 sm:p-8">
@@ -285,11 +323,11 @@ export default function CreateBookPage() {
             </span>
           </label>
 
-          {form.publishToNostr && !isConnected && (
+          {!isConnected && (
             <div className="flex flex-col gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="flex gap-2 text-xs leading-relaxed text-cream-muted">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> Connect a signer to sign this event. We’ll never ask
-                for your private key.
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> Connect a signer to prove you’re the author. We’ll
+                never ask for your private key.
               </p>
               <button type="button" onClick={connect} disabled={isConnecting} className="btn-secondary btn-sm shrink-0">
                 <KeyRound className="h-3.5 w-3.5 text-btc" /> Connect
@@ -301,7 +339,7 @@ export default function CreateBookPage() {
             <Link to="/dashboard" className="btn-ghost">
               Cancel
             </Link>
-            <button type="submit" disabled={submitting} className="btn-primary">
+            <button type="submit" disabled={submitting || !ownsEditing} className="btn-primary disabled:opacity-50">
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {submitting ? 'Signing…' : editing ? 'Save changes' : 'Create book'}
             </button>

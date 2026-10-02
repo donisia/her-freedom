@@ -1,7 +1,9 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useFlash } from '../hooks/useFlash';
+import { apiRequest, apiUrl } from '../utils/api';
 import {
   DEFAULT_RELAYS,
+  KIND_HTTP_AUTH,
   SIMULATED_IDENTITY,
   hexToNpub,
   publishToRelay,
@@ -137,6 +139,28 @@ export function NostrProvider({ children }) {
     [signEvent, publishEvent],
   );
 
+  /**
+   * Call an author-only API endpoint. Each request carries a fresh NIP-98
+   * event (kind 27235) signed for that exact URL and method, so the server
+   * learns who you are from a signature — never from a password or nsec.
+   */
+  const authRequest = useCallback(
+    async (path, options = {}) => {
+      const method = (options.method || 'GET').toUpperCase();
+      const event = await signEvent({
+        kind: KIND_HTTP_AUTH,
+        content: '',
+        tags: [
+          ['u', apiUrl(path)],
+          ['method', method],
+        ],
+      });
+      const token = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(event))));
+      return apiRequest(path, { ...options, method, headers: { ...options.headers, Authorization: `Nostr ${token}` } });
+    },
+    [signEvent],
+  );
+
   const value = useMemo(
     () => ({
       isConnected: Boolean(session),
@@ -152,8 +176,9 @@ export function NostrProvider({ children }) {
       signEvent,
       publishEvent,
       signAndPublish,
+      authRequest,
     }),
-    [session, hasExtension, isConnecting, connect, disconnect, signEvent, publishEvent, signAndPublish],
+    [session, hasExtension, isConnecting, connect, disconnect, signEvent, publishEvent, signAndPublish, authRequest],
   );
 
   return <NostrContext.Provider value={value}>{children}</NostrContext.Provider>;

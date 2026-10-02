@@ -1,15 +1,10 @@
 import { Link } from 'react-router-dom';
 import { BadgeCheck, Layers, Zap } from 'lucide-react';
 import BookCover from './BookCover';
-import { getAuthorByNpub, getStartingPrice } from '../../data/mockBooks';
 import { formatSats } from '../../utils/lightning';
 
-/** Catalogue card used on Home, Explore and Author pages. */
+/** Catalogue card used on Home, Explore and Author pages. Expects an API book summary. */
 export default function BookCard({ book }) {
-  const author = getAuthorByNpub(book.authorNpub);
-  const startingPrice = getStartingPrice(book);
-  const freeCount = book.chapters.filter((c) => c.isFree).length;
-
   return (
     <Link
       to={`/book/${book.id}`}
@@ -30,15 +25,15 @@ export default function BookCard({ book }) {
         <h3 className="font-display text-lg leading-snug text-cream transition group-hover:text-btc sm:text-xl">
           {book.title}
         </h3>
-        <p className="mt-1 text-sm text-cream-muted">{author?.name}</p>
+        <p className="mt-1 text-sm text-cream-muted">{book.author?.name}</p>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-cream-faint">
           <span className="inline-flex items-center gap-1">
-            <Layers className="h-3.5 w-3.5" /> {book.chapters.length} chapters
+            <Layers className="h-3.5 w-3.5" /> {book.chapterCount} {book.chapterCount === 1 ? 'chapter' : 'chapters'}
           </span>
           <span className="inline-flex items-center gap-1 text-btc">
             <Zap className="h-3.5 w-3.5" />
-            {startingPrice ? `From ${formatSats(startingPrice)} sats` : 'Free'}
+            {book.startingPrice ? `From ${formatSats(book.startingPrice)} sats` : 'Free'}
           </span>
         </div>
 
@@ -46,9 +41,20 @@ export default function BookCard({ book }) {
           <span className="badge-nostr">
             <BadgeCheck className="h-3 w-3" /> Signed on Nostr
           </span>
-          {freeCount > 0 && <span className="badge-free">{freeCount} free</span>}
+          {book.freeCount > 0 && <span className="badge-free">{book.freeCount} free</span>}
         </div>
       </div>
     </Link>
+  );
+}
+
+/** Placeholder with the same footprint as a BookCard while the catalogue loads. */
+export function BookCardSkeleton() {
+  return (
+    <div className="flex flex-col p-2" aria-hidden="true">
+      <div className="aspect-[2/3] animate-pulse rounded-lg bg-card" />
+      <div className="mt-4 h-5 w-3/4 animate-pulse rounded bg-card" />
+      <div className="mt-2 h-4 w-1/2 animate-pulse rounded bg-card" />
+    </div>
   );
 }

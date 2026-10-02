@@ -1,16 +1,20 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, SearchX, X } from 'lucide-react';
-import BookCard from '../components/common/BookCard';
-import { CATEGORIES, books, getAuthorByNpub } from '../data/mockBooks';
+import BookCard, { BookCardSkeleton } from '../components/common/BookCard';
+import { PageError } from '../components/common/PageStatus';
+import { CATEGORIES } from '../data/catalogue';
+import { useApi } from '../hooks/useApi';
+import { api } from '../utils/api';
 
-/** Full-text-ish haystack per book: title, subtitle, author, description, tags. */
-const searchIndex = books.map((book) => ({
-  book,
-  haystack: [book.title, book.subtitle, getAuthorByNpub(book.authorNpub)?.name, book.description, ...book.tags]
-    .join(' ')
-    .toLowerCase(),
-}));
+function useDebounced(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 export default function ExplorePage() {
   // Filters live in the URL so results are shareable and survive back/forward.
@@ -25,17 +29,16 @@ export default function ExplorePage() {
     setParams(next, { replace: true });
   };
 
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return searchIndex
-      .filter(({ book, haystack }) => (category === 'All' || book.category === category) && (!needle || haystack.includes(needle)))
-      .map(({ book }) => book);
-  }, [query, category]);
-
-  const counts = useMemo(
-    () => Object.fromEntries(CATEGORIES.map((c) => [c, c === 'All' ? books.length : books.filter((b) => b.category === c).length])),
-    [],
+  // Search runs server-side (title, subtitle, author, description, tags).
+  const needle = useDebounced(query.trim(), 250);
+  const { data, error, loading, reload } = useApi(
+    (signal) => api.listBooks({ q: needle, category: category === 'All' ? '' : category }, { signal }),
+    [needle, category],
   );
+  const results = data?.books ?? [];
+  const counts = data?.categoryCounts ?? {};
+
+  if (error && !data) return <PageError error={error} onRetry={reload} />;
 
   return (
     <div className="container-page py-12 sm:py-16">
@@ -89,7 +92,7 @@ export default function ExplorePage() {
                 }`}
               >
                 {c}
-                <span className={`text-[11px] ${active ? 'text-ink/70' : 'text-cream-faint'}`}>{counts[c]}</span>
+                <span className={`text-[11px] ${active ? 'text-ink/70' : 'text-cream-faint'}`}>{counts[c] ?? '–'}</span>
               </button>
             );
           })}
@@ -97,13 +100,27 @@ export default function ExplorePage() {
       </div>
 
       <p className="mt-8 text-sm text-cream-faint" aria-live="polite">
-        {results.length} {results.length === 1 ? 'title' : 'titles'}
-        {category !== 'All' && ` in ${category}`}
-        {query && ` matching “${query}”`}
+        {!data ? (
+          'Loading the library…'
+        ) : (
+          <>
+            {results.length} {results.length === 1 ? 'title' : 'titles'}
+            {category !== 'All' && ` in ${category}`}
+            {needle && ` matching “${needle}”`}
+          </>
+        )}
       </p>
 
-      {results.length > 0 ? (
+      {!data && loading ? (
         <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-5 lg:grid-cols-4">
+          {Array.from({ length: 8 }, (_, i) => (
+            <BookCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : results.length > 0 ? (
+        <div
+          className={`mt-6 grid grid-cols-2 gap-x-3 gap-y-8 transition-opacity sm:grid-cols-3 sm:gap-x-5 lg:grid-cols-4 ${loading ? 'opacity-60' : ''}`}
+        >
           {results.map((book) => (
             <BookCard key={book.id} book={book} />
           ))}

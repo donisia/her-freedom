@@ -1,94 +1,179 @@
-import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFlash } from '../hooks/useFlash';
-import { INVOICE_TTL_SECONDS, createMockInvoice, formatSats } from '../utils/lightning';
+import { api } from '../utils/api';
+import { formatSats } from '../utils/lightning';
 
 /**
- * Lightning payment flow + chapter entitlements.
+ * Lightning payment flow + chapter entitlements, backed by the API.
  *
- * `payment` drives the LightningModal. Unlocked chapters are persisted in
- * localStorage so the demo survives a refresh. In production, entitlements
- * would be granted server-side after the invoice's preimage is verified.
+ * The server issues invoices and records unlocks against this browser's
+ * anonymous reader id; paid chapter text is only ever returned by the server
+ * once that reader owns the chapter. `payment` drives the LightningModal.
  */
 export const LightningContext = createContext(null);
 
-const STORAGE_KEY = 'sp:unlocked-chapters';
+const POLL_MS = 3000;
 const keyFor = (bookId, chapterId) => `${bookId}:${chapterId}`;
-
-function readUnlocked() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []);
-  } catch {
-    return new Set();
-  }
-}
-
-const newInvoice = (sats) => ({
-  invoice: createMockInvoice(sats),
-  status: 'pending',
-  expiresAt: Date.now() + INVOICE_TTL_SECONDS * 1000,
-});
 
 export function LightningProvider({ children }) {
   const flash = useFlash();
-  const [unlocked, setUnlocked] = useState(readUnlocked);
-  /** payment: { book, chapter, invoice, status: 'pending'|'paid'|'failed', expiresAt } | null */
+  const [unlocked, setUnlocked] = useState(() => new Set());
+  /**
+   * payment: {
+   *   book, chapter,
+   *   status: 'creating' | 'pending' | 'paid' | 'failed' | 'expired' | 'error',
+   *   invoice: { paymentHash, bolt11, expiresAt, ... } | null,
+   *   error?: string,
+   * } | null
+   */
   const [payment, setPayment] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const paymentRef = useRef(payment);
+  paymentRef.current = payment;
+
+  const refreshUnlocks = useCallback(async () => {
+    try {
+      const { unlocks } = await api.listUnlocks();
+      setUnlocked(new Set(unlocks));
+    } catch {
+      /* Offline: keep whatever we already know. */
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...unlocked]));
-  }, [unlocked]);
+    refreshUnlocks();
+  }, [refreshUnlocks]);
+
+  const markUnlocked = useCallback((bookId, chapterId, value) => {
+    setUnlocked((prev) => {
+      const next = new Set(prev);
+      if (value) next.add(keyFor(bookId, chapterId));
+      else next.delete(keyFor(bookId, chapterId));
+      return next;
+    });
+  }, []);
 
   const isUnlocked = useCallback(
     (book, chapter) => Boolean(chapter?.isFree) || unlocked.has(keyFor(book?.id, chapter?.id)),
     [unlocked],
   );
 
-  const unlockChapter = useCallback((bookId, chapterId) => {
-    setUnlocked((prev) => new Set(prev).add(keyFor(bookId, chapterId)));
-  }, []);
+  const announcePaid = useCallback(
+    (chapter) => {
+      flash.success(`"${chapter.title}" is unlocked. Enjoy the read.`, {
+        title: `${formatSats(chapter.priceSats)} sats sent to the author`,
+      });
+    },
+    [flash],
+  );
 
-  const lockChapter = useCallback((bookId, chapterId) => {
-    setUnlocked((prev) => {
-      const next = new Set(prev);
-      next.delete(keyFor(bookId, chapterId));
-      return next;
-    });
-  }, []);
+  /** Apply a fresh invoice from the server to the open payment, if it still matches. */
+  const applyInvoice = useCallback(
+    (invoice) => {
+      const current = paymentRef.current;
+      if (!current || current.invoice?.paymentHash !== invoice.paymentHash) return;
+      if (invoice.status === 'paid' && current.status !== 'paid') {
+        markUnlocked(invoice.bookId, invoice.chapterId, true);
+        announcePaid(current.chapter);
+      }
+      setPayment((p) => (p?.invoice?.paymentHash === invoice.paymentHash ? { ...p, invoice, status: invoice.status } : p));
+    },
+    [markUnlocked, announcePaid],
+  );
 
-  const openPayment = useCallback((book, chapter) => {
-    setPayment({ book, chapter, ...newInvoice(chapter.priceSats) });
-  }, []);
+  const requestInvoice = useCallback(
+    async (book, chapter) => {
+      setPayment({ book, chapter, invoice: null, status: 'creating' });
+      try {
+        const { invoice } = await api.createInvoice(book.id, chapter.id);
+        setPayment((p) => (p?.chapter.id === chapter.id ? { ...p, invoice, status: invoice.status } : p));
+      } catch (error) {
+        if (error.code === 'already_unlocked') {
+          markUnlocked(book.id, chapter.id, true);
+          setPayment((p) => p && { ...p, status: 'paid' });
+          flash.info('This chapter is already unlocked for this browser.', { title: 'Already yours' });
+          return;
+        }
+        setPayment((p) => p && { ...p, status: 'error', error: error.message });
+      }
+    },
+    [markUnlocked, flash],
+  );
+
+  const openPayment = useCallback((book, chapter) => requestInvoice(book, chapter), [requestInvoice]);
 
   const regenerateInvoice = useCallback(() => {
-    setPayment((current) => current && { ...current, ...newInvoice(current.chapter.priceSats) });
-  }, []);
+    const current = paymentRef.current;
+    if (current) requestInvoice(current.book, current.chapter);
+  }, [requestInvoice]);
 
   const closePayment = useCallback(() => setPayment(null), []);
 
-  const simulateSuccess = useCallback(() => {
-    if (!payment || payment.status === 'paid') return;
-    unlockChapter(payment.book.id, payment.chapter.id);
-    setPayment((current) => current && { ...current, status: 'paid' });
-    flash.success(`"${payment.chapter.title}" is unlocked. Enjoy the read.`, {
-      title: `${formatSats(payment.chapter.priceSats)} sats sent to the author`,
-    });
-  }, [payment, unlockChapter, flash]);
+  // Poll the server while an invoice is pending, so a real wallet payment
+  // (or expiry) is picked up without user action.
+  const pendingHash = payment?.status === 'pending' ? payment.invoice?.paymentHash : null;
+  useEffect(() => {
+    if (!pendingHash) return undefined;
+    const interval = setInterval(async () => {
+      try {
+        const { invoice } = await api.getInvoice(pendingHash);
+        if (invoice.status !== 'pending') applyInvoice(invoice);
+      } catch {
+        /* transient; try again next tick */
+      }
+    }, POLL_MS);
+    return () => clearInterval(interval);
+  }, [pendingHash, applyInvoice]);
 
-  const simulateFailure = useCallback(() => {
-    if (!payment || payment.status === 'paid') return;
-    setPayment((current) => current && { ...current, status: 'failed' });
-    flash.error('No route to the author’s node was found. No sats left your wallet.', {
-      title: 'Payment failed',
-    });
-  }, [payment, flash]);
+  const simulate = useCallback(
+    async (outcome) => {
+      const current = paymentRef.current;
+      if (!current?.invoice || current.status !== 'pending' || busy) return;
+      setBusy(true);
+      try {
+        const { invoice } = await api.simulateInvoice(current.invoice.paymentHash, outcome);
+        applyInvoice(invoice);
+        if (invoice.status === 'failed') {
+          flash.error('No route to the author’s node was found. No sats left your wallet.', { title: 'Payment failed' });
+        }
+      } catch (error) {
+        flash.error(error.message, { title: 'Simulation failed' });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, applyInvoice, flash],
+  );
+
+  const simulateSuccess = useCallback(() => simulate('paid'), [simulate]);
+  const simulateFailure = useCallback(() => simulate('failed'), [simulate]);
+
+  /** Demo toggle: grant or revoke a chapter server-side without paying. */
+  const setChapterAccess = useCallback(
+    async (bookId, chapterId, value) => {
+      try {
+        if (value) await api.demoUnlock(bookId, chapterId);
+        else await api.demoLock(bookId, chapterId);
+        markUnlocked(bookId, chapterId, value);
+      } catch (error) {
+        flash.error(error.message, { title: 'Couldn’t change access' });
+      }
+    },
+    [markUnlocked, flash],
+  );
+
+  const unlockChapter = useCallback((bookId, chapterId) => setChapterAccess(bookId, chapterId, true), [setChapterAccess]);
+  const lockChapter = useCallback((bookId, chapterId) => setChapterAccess(bookId, chapterId, false), [setChapterAccess]);
 
   const value = useMemo(
     () => ({
       payment,
+      isSimulating: busy,
       unlockedCount: unlocked.size,
       isUnlocked,
       unlockChapter,
       lockChapter,
+      refreshUnlocks,
       openPayment,
       regenerateInvoice,
       closePayment,
@@ -97,10 +182,12 @@ export function LightningProvider({ children }) {
     }),
     [
       payment,
+      busy,
       unlocked,
       isUnlocked,
       unlockChapter,
       lockChapter,
+      refreshUnlocks,
       openPayment,
       regenerateInvoice,
       closePayment,

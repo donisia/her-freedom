@@ -23,6 +23,9 @@ export const SIMULATED_IDENTITY = {
 /** Book & chapter metadata is published as NIP-23 parameterized long-form events. */
 export const KIND_LONG_FORM = 30023;
 
+/** NIP-98 HTTP auth events, used to authenticate author API calls. */
+export const KIND_HTTP_AUTH = 27235;
+
 export function shortenKey(key, head = 8, tail = 3) {
   if (!key) return '';
   if (key.length <= head + tail + 3) return key;
