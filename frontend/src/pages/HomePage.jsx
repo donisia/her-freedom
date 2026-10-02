@@ -1,0 +1,220 @@
+import { Link } from 'react-router-dom';
+import { ArrowRight, BookOpen, Feather, KeyRound, PenLine, Radio, Unlock, Zap } from 'lucide-react';
+import BookCard from '../components/common/BookCard';
+import BookCover from '../components/common/BookCover';
+import { books, getBookById } from '../data/mockBooks';
+
+const FEATURES = [
+  {
+    icon: Feather,
+    title: 'Publish Freely',
+    body: 'Your book is a set of signed Nostr events broadcast to many independent relays. No single company can delist it, shadow-ban it, or quietly change its terms.',
+  },
+  {
+    icon: Zap,
+    title: 'Earn Directly',
+    body: 'Price each chapter in sats. Readers pay over Lightning and the money settles in your wallet in seconds — no payout thresholds, no 30-day holds, no middleman.',
+  },
+  {
+    icon: KeyRound,
+    title: 'Own Your Identity',
+    body: 'Your pen name is anchored to a key pair you control. Take your readers, reputation and catalogue to any Nostr client, any time. Nobody can revoke it.',
+  },
+];
+
+const STEPS = [
+  { icon: KeyRound, title: 'Connect your key', body: 'Sign in with a NIP-07 extension like Alby or nos2x. We only ever see your public key.' },
+  { icon: PenLine, title: 'Write & sign', body: 'Draft your book and chapters, then sign the public metadata with your Nostr key.' },
+  { icon: Radio, title: 'Broadcast to relays', body: 'Metadata is published to multiple relays, so your work stays discoverable across the network.' },
+  { icon: Unlock, title: 'Readers unlock', body: 'Free chapters hook readers in. Paid chapters unlock instantly with a Lightning micropayment.' },
+];
+
+/** Overlapping cover composition for the hero. */
+function HeroCovers() {
+  const [left, center, right] = ['ledger-of-kings', 'the-salt-roads', 'small-hours'].map(getBookById);
+  return (
+    <div className="relative mx-auto h-[360px] w-full max-w-[440px] sm:h-[460px]">
+      <div className="absolute left-0 top-12 w-[38%] -rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[-4deg] sm:top-16">
+        <BookCover book={left} size="sm" />
+      </div>
+      <div className="absolute right-0 top-12 w-[38%] rotate-[8deg] opacity-80 transition duration-700 hover:rotate-[4deg] sm:top-16">
+        <BookCover book={right} size="sm" />
+      </div>
+      <div className="absolute left-1/2 top-0 w-[50%] -translate-x-1/2">
+        <div className="animate-float">
+          <BookCover book={center} size="md" className="shadow-glow-soft" />
+        </div>
+      </div>
+
+      {/* Floating payment receipt */}
+      <div className="absolute bottom-2 left-1/2 w-[260px] -translate-x-1/2 sm:bottom-6">
+        <div className="flex animate-fade-up items-center gap-3 rounded-2xl border border-line bg-surface/90 p-3.5 shadow-card backdrop-blur-xl [animation-delay:400ms]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-btc/15 text-btc">
+            <Zap className="h-4 w-4" fill="currentColor" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-cream">Chapter 3 unlocked</p>
+            <p className="truncate text-[11px] text-cream-faint">The Salt Roads · settled in 1.2s</p>
+          </div>
+          <span className="font-mono text-sm text-btc">+210</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function HomePage() {
+  const featured = books.filter((book) => book.featured).slice(0, 4);
+
+  return (
+    <>
+      {/* ------------------------------ Hero ------------------------------ */}
+      <section className="relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-40 right-[-10%] h-[520px] w-[520px] rounded-full bg-btc/10 blur-[120px]" />
+        <div className="pointer-events-none absolute -left-40 top-40 h-[360px] w-[360px] rounded-full bg-violet-500/5 blur-[120px]" />
+
+        <div className="container-page relative grid items-center gap-14 pb-20 pt-12 sm:pt-20 lg:grid-cols-12 lg:pb-28 lg:pt-24">
+          <div className="animate-fade-up lg:col-span-7">
+            <p className="eyebrow">Nostr identity · Lightning payments</p>
+            <h1 className="mt-6 font-display text-[44px] font-semibold leading-[1.03] tracking-tight text-cream sm:text-6xl lg:text-7xl">
+              Publish freely.
+              <br />
+              <span className="italic text-btc">Earn directly.</span>
+            </h1>
+            <p className="mt-7 max-w-xl text-lg leading-relaxed text-cream-muted">
+              Sovereign Publishing gives independent authors a home that no platform can take away. Sign your work with a
+              Nostr key, publish to open relays, and get paid per chapter in sats over the Lightning Network.
+            </p>
+
+            <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+              <Link to="/explore" className="btn-primary btn-lg">
+                <BookOpen className="h-4 w-4" /> Explore Books
+              </Link>
+              <Link to="/create-book" className="btn-secondary btn-lg">
+                Start Publishing <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+
+            <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-8">
+              {[
+                ['Per chapter', 'Pricing'],
+                ['~1 sec', 'Settlement'],
+                ['Your keys', 'Your identity'],
+              ].map(([value, label]) => (
+                <div key={label}>
+                  <dt className="text-[11px] uppercase tracking-[0.16em] text-cream-faint">{label}</dt>
+                  <dd className="mt-1.5 font-display text-lg text-cream sm:text-xl">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="lg:col-span-5">
+            <HeroCovers />
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------- Features ---------------------------- */}
+      <section className="border-y border-line/70 bg-surface/40">
+        <div className="container-page py-20 sm:py-24">
+          <div className="max-w-2xl">
+            <p className="eyebrow">Why Sovereign Publishing</p>
+            <h2 className="mt-4 font-display text-3xl leading-tight text-cream sm:text-5xl">
+              The printing press, <span className="italic">without the gatekeeper.</span>
+            </h2>
+          </div>
+
+          <div className="mt-14 grid gap-5 md:grid-cols-3">
+            {FEATURES.map(({ icon: Icon, title, body }) => (
+              <article key={title} className="card group p-7 transition duration-300 hover:-translate-y-1 hover:border-btc/30">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-btc/25 bg-btc/10 text-btc transition group-hover:shadow-glow">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h3 className="mt-6 font-display text-2xl text-cream">{title}</h3>
+                <p className="mt-3 text-[15px] leading-relaxed text-cream-muted">{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------- Featured books ------------------------- */}
+      <section className="container-page py-20 sm:py-24">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="eyebrow">From the library</p>
+            <h2 className="mt-4 font-display text-3xl text-cream sm:text-5xl">Featured books</h2>
+          </div>
+          <Link to="/explore" className="group inline-flex items-center gap-2 text-sm text-cream-muted transition hover:text-btc">
+            Browse all titles <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+          </Link>
+        </div>
+
+        <div className="mt-12 grid grid-cols-2 gap-x-3 gap-y-8 sm:gap-x-5 lg:grid-cols-4">
+          {featured.map((book) => (
+            <BookCard key={book.id} book={book} />
+          ))}
+        </div>
+      </section>
+
+      {/* -------------------------- How it works -------------------------- */}
+      <section className="container-page pb-20 sm:pb-24">
+        <div className="panel overflow-hidden p-7 sm:p-12">
+          <div className="max-w-2xl">
+            <p className="eyebrow">How it works</p>
+            <h2 className="mt-4 font-display text-3xl text-cream sm:text-4xl">From manuscript to micropayment in four steps.</h2>
+          </div>
+
+          <div className="relative mt-12">
+            <div
+              className="absolute left-6 right-6 top-6 hidden h-px bg-gradient-to-r from-btc/50 via-line to-transparent lg:block"
+              aria-hidden="true"
+            />
+            <ol className="relative grid gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+              {STEPS.map(({ icon: Icon, title, body }, index) => (
+                <li key={title} className="relative">
+                  <span className="relative flex h-12 w-12 items-center justify-center rounded-full border border-line bg-ink text-btc">
+                    <Icon className="h-5 w-5" />
+                    <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-btc text-[10px] font-bold text-ink">
+                      {index + 1}
+                    </span>
+                  </span>
+                  <h3 className="mt-5 font-display text-xl text-cream">{title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-cream-muted">{body}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------- Author CTA --------------------------- */}
+      <section className="container-page">
+        <div className="relative overflow-hidden rounded-3xl border border-btc/25 bg-gradient-to-br from-[#2A1B0C] via-surface to-ink px-7 py-14 sm:px-14 sm:py-20">
+          <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-btc/20 blur-[100px]" />
+          <div className="relative grid items-center gap-10 lg:grid-cols-[1fr_auto]">
+            <div className="max-w-2xl">
+              <p className="eyebrow">For authors</p>
+              <h2 className="mt-4 font-display text-3xl leading-tight text-cream sm:text-5xl">
+                Your words. Your readers. <span className="italic text-btc">Your sats.</span>
+              </h2>
+              <p className="mt-5 text-lg leading-relaxed text-cream-muted">
+                Publish your first chapter today. Keep it free to build an audience, or price it at a few hundred sats and
+                get paid the moment someone reads.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
+              <Link to="/create-book" className="btn-primary btn-lg">
+                <PenLine className="h-4 w-4" /> Start Publishing
+              </Link>
+              <Link to="/about" className="btn-secondary btn-lg">
+                Read the manifesto
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}

@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ink font-sans text-cream antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(247, 147, 26, 0.35);
+    color: #fff;
+  }
+
+  /* Remove the 300ms tap delay and double-tap zoom on interactive elements. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid #f7931a;
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2d37 transparent;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Components                                                          */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.22em] text-btc;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex min-h-[42px] select-none items-center justify-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-medium transition-all duration-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply btn bg-btc text-ink hover:bg-btc-hover hover:shadow-glow;
+  }
+  .btn-secondary {
+    @apply btn border border-line bg-white/[0.03] text-cream hover:border-btc/60 hover:bg-white/[0.05] hover:text-white;
+  }
+  .btn-ghost {
+    @apply btn text-cream-muted hover:bg-white/5 hover:text-cream;
+  }
+  .btn-danger {
+    @apply btn border border-red-500/30 bg-red-500/10 text-red-300 hover:border-red-400/60 hover:bg-red-500/15;
+  }
+  .btn-sm {
+    @apply min-h-[34px] px-3.5 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply min-h-[52px] px-7 py-3.5 text-[15px];
+  }
+  .icon-btn {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-full text-cream-muted transition hover:bg-white/5 hover:text-cream active:scale-95;
+  }
+
+  /* Surfaces */
+  .card {
+    @apply rounded-2xl border border-line bg-card shadow-card;
+  }
+  .panel {
+    @apply rounded-2xl border border-line bg-surface;
+  }
+
+  /* Forms */
+  .label {
+    @apply mb-2 block text-[11px] font-semibold uppercase tracking-[0.16em] text-cream-muted;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-ink/70 px-4 py-3 text-[15px] text-cream transition placeholder:text-cream-faint focus:border-btc/70 focus:outline-none focus:ring-4 focus:ring-btc/10;
+  }
+  .input-error {
+    @apply border-red-500/60 focus:border-red-400 focus:ring-red-500/10;
+  }
+  .help {
+    @apply mt-2 text-xs leading-relaxed text-cream-faint;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium tracking-wide;
+  }
+  .badge-neutral {
+    @apply badge border-line bg-white/[0.04] text-cream-muted;
+  }
+  .badge-btc {
+    @apply badge border-btc/30 bg-btc/10 text-btc;
+  }
+  .badge-free {
+    @apply badge border-emerald-400/30 bg-emerald-400/10 text-emerald-300;
+  }
+  .badge-nostr {
+    @apply badge border-violet-400/30 bg-violet-400/10 text-violet-300;
+  }
+
+  /* Long-form reading typography */
+  .prose-reading {
+    @apply font-serif text-[#E8E4DA];
+    font-size: var(--reading-size, 1.1875rem);
+    line-height: 1.85;
+    letter-spacing: 0.002em;
+  }
+  .prose-reading p + p {
+    margin-top: 1.35em;
+  }
+  .prose-reading .drop-cap::first-letter {
+    float: left;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 4.1em;
+    line-height: 0.82;
+    padding: 0.06em 0.1em 0 0;
+    color: #f7931a;
+  }
+  .prose-reading.verse p {
+    white-space: pre-line;
+    font-style: italic;
+  }
+  .prose-reading.verse p + p {
+    margin-top: 2em;
+  }
+
+  .hairline {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-line to-transparent;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .grain {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 3px 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
